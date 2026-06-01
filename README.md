@@ -1,3 +1,10 @@
+
+
+گروه پروژه:
+https://t.me/rstasnispoof
+
+
+
 # RSTA SNI Spoof v3.0.0
 
 ابزار دور زدن فیلترینگ با روش جعل SNI و فرگمنتیشن TLS  
