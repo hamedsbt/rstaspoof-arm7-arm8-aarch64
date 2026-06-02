@@ -1,4 +1,4 @@
-name: Build for Android ARMv7 (patched)
+name: Build for Android ARMv7 (safe patch)
 on: [push, workflow_dispatch]
 
 jobs:
@@ -9,22 +9,26 @@ jobs:
         run: |
           wget https://raw.githubusercontent.com/rstagit/rstaspoof/refs/heads/main/rstaspoof.go
 
-      - name: Patch unaligned atomic field
+      - name: Patch struct alignment
         run: |
-          # Move the uint64 field 'totalPackets' to the top of PacketMonitor struct
-          # Original struct definition (around line 165) looks like:
-          # type PacketMonitor struct {
-          #     packets map[string]*PacketInfo
-          #     mu      sync.RWMutex
-          #     totalPackets uint64
-          # }
-          # After patch: totalPackets comes first.
-          sed -i '/type PacketMonitor struct/,/^}/ {
-              /totalPackets uint64/ { h; d; }
-              /^}/ { x; /totalPackets/ { G; } }
-          }' rstaspoof.go
-          # Simpler approach: use awk to reorder fields
-          awk '/type PacketMonitor struct/ {print; getline; print "    totalPackets uint64"; while (getline && !/^}/) {if (!/totalPackets/) print} print "}"; next} 1' rstaspoof.go > tmp && mv tmp rstaspoof.go
+          # Move totalPackets to top of PacketMonitor struct
+          cp rstaspoof.go rstaspoof.go.bak
+          awk '
+          /type PacketMonitor struct/ { found=1 }
+          found && !done && /totalPackets uint64/ {
+              total_line = $0
+              next
+          }
+          found && !done && /^}/ {
+              if (total_line != "") print total_line
+              done=1
+          }
+          { print }
+          END { if (found && !done && total_line != "") print total_line }
+          ' rstaspoof.go.bak > rstaspoof.go
+          
+          echo "Patched file:"
+          grep -A6 "type PacketMonitor struct" rstaspoof.go
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -45,8 +49,9 @@ jobs:
           export CC=$(find $ANDROID_NDK_HOME -name "armv7a-linux-androideabi*-clang" | head -n 1)
           CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC=$CC \
             go build -ldflags="-s -w" -o rstaspoof_android_armv7 rstaspoof.go
+          file rstaspoof_android_armv7
 
-      - name: Upload
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: rstaspoof_android_armv7_fixed
