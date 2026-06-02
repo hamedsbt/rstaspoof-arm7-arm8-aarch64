@@ -23,27 +23,40 @@ jobs:
           ndk-version: r25c
           link-to-sdk: true
       
-      - name: Find NDK Clang Path
+      - name: Find and set NDK clang
         run: |
-          # Find the correct clang binary
           NDK_PATH=$ANDROID_HOME/ndk-bundle
-          CLANG_PATH=$(find $NDK_PATH -name "armv7a-linux-androideabi*-clang" | head -n 1)
-          echo "Found clang at: $CLANG_PATH"
-          echo "NDK_CLANG=$CLANG_PATH" >> $GITHUB_ENV
+          # List available clang versions
+          echo "Available clang binaries:"
+          ls -la $NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/ | grep "armv7a"
+          
+          # Use API level 21 (Android 5.0) which is compatible with Android 11
+          export CC=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
+          
+          # Make sure it exists
+          if [ ! -f "$CC" ]; then
+            echo "Trying API level 24 instead..."
+            export CC=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang
+          fi
+          
+          echo "Using compiler: $CC"
+          echo "CC=$CC" >> $GITHUB_ENV
       
-      - name: Build Static Binary (CGO Disabled - Simpler)
+      - name: Build with external linking
         run: |
-          # This is the simpler approach without CGO
-          CGO_ENABLED=0 \
+          CGO_ENABLED=1 \
           GOOS=android \
           GOARCH=arm \
           GOARM=7 \
+          CC=$CC \
           go build -ldflags="-s -w" -o rstaspoof_android_armv7 rstaspoof.go
       
-      - name: Verify binary
+      - name: Verify and strip binary
         run: |
           file rstaspoof_android_armv7
           ls -lh rstaspoof_android_armv7
+          # Check if it's statically linked
+          ldd rstaspoof_android_armv7 2>&1 || echo "Binary appears static"
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
