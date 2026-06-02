@@ -7,32 +7,44 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        # You'll need to add the rstaspoof.go file to your repo, or download it in a step.
+      
       - name: Download source
         run: |
           wget https://raw.githubusercontent.com/rstagit/rstaspoof/refs/heads/main/rstaspoof.go
+      
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+      
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
           link-to-sdk: true
-      - name: Set NDK Environment Variables
+      
+      - name: Find NDK Clang Path
         run: |
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk-bundle" >> $GITHUB_ENV
-          NDK_CLANG="$ANDROID_HOME/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang"
-          echo "NDK_CLANG=$NDK_CLANG" >> $GITHUB_ENV
-      - name: Build Static Binary
+          # Find the correct clang binary
+          NDK_PATH=$ANDROID_HOME/ndk-bundle
+          CLANG_PATH=$(find $NDK_PATH -name "armv7a-linux-androideabi*-clang" | head -n 1)
+          echo "Found clang at: $CLANG_PATH"
+          echo "NDK_CLANG=$CLANG_PATH" >> $GITHUB_ENV
+      
+      - name: Build Static Binary (CGO Disabled - Simpler)
         run: |
-          CGO_ENABLED=1 \
+          # This is the simpler approach without CGO
+          CGO_ENABLED=0 \
           GOOS=android \
           GOARCH=arm \
           GOARM=7 \
-          CC=$NDK_CLANG \
-          go build -buildmode=exe -ldflags="-linkmode external -extldflags '-static' -s -w" -o rstaspoof_android_armv7 rstaspoof.go
+          go build -ldflags="-s -w" -o rstaspoof_android_armv7 rstaspoof.go
+      
+      - name: Verify binary
+        run: |
+          file rstaspoof_android_armv7
+          ls -lh rstaspoof_android_armv7
+      
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
