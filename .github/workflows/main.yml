@@ -1,0 +1,40 @@
+name: Build for Android ARMv7
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        # You'll need to add the rstaspoof.go file to your repo, or download it in a step.
+      - name: Download source
+        run: |
+          wget https://raw.githubusercontent.com/rstagit/rstaspoof/refs/heads/main/rstaspoof.go
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
+          link-to-sdk: true
+      - name: Set NDK Environment Variables
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk-bundle" >> $GITHUB_ENV
+          NDK_CLANG="$ANDROID_HOME/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang"
+          echo "NDK_CLANG=$NDK_CLANG" >> $GITHUB_ENV
+      - name: Build Static Binary
+        run: |
+          CGO_ENABLED=1 \
+          GOOS=android \
+          GOARCH=arm \
+          GOARM=7 \
+          CC=$NDK_CLANG \
+          go build -buildmode=exe -ldflags="-linkmode external -extldflags '-static' -s -w" -o rstaspoof_android_armv7 rstaspoof.go
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rstaspoof_android_armv7
+          path: rstaspoof_android_armv7
