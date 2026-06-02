@@ -7,57 +7,60 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Download source
+
+      - name: Download source code
         run: |
           wget https://raw.githubusercontent.com/rstagit/rstaspoof/refs/heads/main/rstaspoof.go
-      
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      
+
       - name: Setup Android NDK
+        id: setup-ndk # Give this step an ID to reference its outputs
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
-          link-to-sdk: true
-      
-      - name: Find and set NDK clang
+          link-to-sdk: false # Set to false to prevent relying on ANDROID_HOME
+
+      - name: Build Static Binary for Android ARMv7
+        env:
+          # Reference the NDK path using the action's output
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          NDK_PATH=$ANDROID_HOME/ndk-bundle
-          # List available clang versions
-          echo "Available clang binaries:"
-          ls -la $NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/ | grep "armv7a"
+          # Construct the path to the clang compiler
+          # The 'setup-ndk' action might use a slightly different internal path.
+          # This command finds it dynamically to prevent path errors.
+          export CC=$(find $ANDROID_NDK_HOME -name "armv7a-linux-androideabi*-clang" | head -n 1)
           
-          # Use API level 21 (Android 5.0) which is compatible with Android 11
-          export CC=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
+          echo "Found NDK at: $ANDROID_NDK_HOME"
+          echo "Using compiler: $CC"
           
-          # Make sure it exists
+          # If a compiler wasn't found, exit with an error
           if [ ! -f "$CC" ]; then
-            echo "Trying API level 24 instead..."
-            export CC=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang
+            echo "Error: Clang compiler not found in NDK path!"
+            exit 1
           fi
           
-          echo "Using compiler: $CC"
-          echo "CC=$CC" >> $GITHUB_ENV
-      
-      - name: Build with external linking
-        run: |
+          # Build the binary
           CGO_ENABLED=1 \
           GOOS=android \
           GOARCH=arm \
           GOARM=7 \
           CC=$CC \
           go build -ldflags="-s -w" -o rstaspoof_android_armv7 rstaspoof.go
-      
-      - name: Verify and strip binary
-        run: |
-          file rstaspoof_android_armv7
-          ls -lh rstaspoof_android_armv7
-          # Check if it's statically linked
-          ldd rstaspoof_android_armv7 2>&1 || echo "Binary appears static"
-      
+          
+          # Verify the build was successful
+          if [ -f "rstaspoof_android_armv7" ]; then
+            echo "Build successful! Binary info:"
+            file rstaspoof_android_armv7
+            ls -lh rstaspoof_android_armv7
+          else
+            echo "Error: Build failed, binary not created."
+            exit 1
+          fi
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
