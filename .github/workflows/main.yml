@@ -1,16 +1,30 @@
-name: Build for Android ARMv7
+name: Build for Android ARMv7 (patched)
 on: [push, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download source code
+      - name: Download source
         run: |
           wget https://raw.githubusercontent.com/rstagit/rstaspoof/refs/heads/main/rstaspoof.go
+
+      - name: Patch unaligned atomic field
+        run: |
+          # Move the uint64 field 'totalPackets' to the top of PacketMonitor struct
+          # Original struct definition (around line 165) looks like:
+          # type PacketMonitor struct {
+          #     packets map[string]*PacketInfo
+          #     mu      sync.RWMutex
+          #     totalPackets uint64
+          # }
+          # After patch: totalPackets comes first.
+          sed -i '/type PacketMonitor struct/,/^}/ {
+              /totalPackets uint64/ { h; d; }
+              /^}/ { x; /totalPackets/ { G; } }
+          }' rstaspoof.go
+          # Simpler approach: use awk to reorder fields
+          awk '/type PacketMonitor struct/ {print; getline; print "    totalPackets uint64"; while (getline && !/^}/) {if (!/totalPackets/) print} print "}"; next} 1' rstaspoof.go > tmp && mv tmp rstaspoof.go
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -18,51 +32,22 @@ jobs:
           go-version: '1.22'
 
       - name: Setup Android NDK
-        id: setup-ndk # Give this step an ID to reference its outputs
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
-          link-to-sdk: false # Set to false to prevent relying on ANDROID_HOME
+          link-to-sdk: false
 
-      - name: Build Static Binary for Android ARMv7
+      - name: Build
         env:
-          # Reference the NDK path using the action's output
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          # Construct the path to the clang compiler
-          # The 'setup-ndk' action might use a slightly different internal path.
-          # This command finds it dynamically to prevent path errors.
           export CC=$(find $ANDROID_NDK_HOME -name "armv7a-linux-androideabi*-clang" | head -n 1)
-          
-          echo "Found NDK at: $ANDROID_NDK_HOME"
-          echo "Using compiler: $CC"
-          
-          # If a compiler wasn't found, exit with an error
-          if [ ! -f "$CC" ]; then
-            echo "Error: Clang compiler not found in NDK path!"
-            exit 1
-          fi
-          
-          # Build the binary
-          CGO_ENABLED=1 \
-          GOOS=android \
-          GOARCH=arm \
-          GOARM=7 \
-          CC=$CC \
-          go build -ldflags="-s -w" -o rstaspoof_android_armv7 rstaspoof.go
-          
-          # Verify the build was successful
-          if [ -f "rstaspoof_android_armv7" ]; then
-            echo "Build successful! Binary info:"
-            file rstaspoof_android_armv7
-            ls -lh rstaspoof_android_armv7
-          else
-            echo "Error: Build failed, binary not created."
-            exit 1
-          fi
+          CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC=$CC \
+            go build -ldflags="-s -w" -o rstaspoof_android_armv7 rstaspoof.go
 
-      - name: Upload Artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: rstaspoof_android_armv7
+          name: rstaspoof_android_armv7_fixed
           path: rstaspoof_android_armv7
