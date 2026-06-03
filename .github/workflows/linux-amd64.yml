@@ -1,0 +1,44 @@
+name: Build rstaspoof for Arch Linux
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'  # Adjust if needed
+      
+      - name: Download rstaspoof.go
+        run: |
+          curl -o rstaspoof.go https://raw.githubusercontent.com/rstagit/rstaspoof/refs/heads/main/rstaspoof.go
+      
+      - name: Build binary
+        run: |
+          GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-X main.Version=7.0.10-arch1-1" \
+            -o rstaspoof.bin rstaspoof.go
+        env:
+          CGO_ENABLED: 0
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: rstaspoof-archlinux-amd64
+          path: rstaspoof.bin
+      
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: rstaspoof.bin
